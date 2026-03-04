@@ -1,34 +1,22 @@
 import re
 import csv
+import sys
 import time
 import requests
-
-CHANNELS = [
-    "@MrBeast",
-    "@mkbhd",
-    "@veritasium",
-    "@kurzgesagt",
-]
+from patterns import SOCIAL_PATTERNS
 
 OUTPUT_FILE = "youtube_contacts.csv"
-DELAY = 2
+DELAY = 1
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-SOCIAL_PATTERNS = {
-    "emails":    r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}",
-    "twitter_x": r"(?:twitter\.com|x\.com)/[A-Za-z0-9_]+",
-    "instagram": r"instagram\.com/[A-Za-z0-9_.]+",
-    "tiktok":    r"tiktok\.com/@?[A-Za-z0-9_.]+",
-    "facebook":  r"facebook\.com/[A-Za-z0-9_.]+",
-    "linkedin":  r"linkedin\.com/(?:in|company)/[A-Za-z0-9_\-]+",
-    "twitch":    r"twitch\.tv/[A-Za-z0-9_]+",
-    "discord":   r"discord\.(?:gg|com/invite)/[A-Za-z0-9_\-]+",
-    "patreon":   r"patreon\.com/[A-Za-z0-9_]+",
-}
+
+def load_channels(filepath):
+    with open(filepath, "r", encoding="utf-8") as f:
+        return [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
 
 def scrape(channel):
@@ -36,7 +24,7 @@ def scrape(channel):
     url = f"https://www.youtube.com/{handle}/about"
 
     resp = requests.get(url, headers=HEADERS, timeout=10)
-    # YouTube encodes external links as URL-encoded query params — decode them
+    resp.raise_for_status()
     html = requests.utils.unquote(resp.text)
 
     row = {"channel": channel, "url": url}
@@ -50,18 +38,25 @@ def scrape(channel):
 
 
 def main():
+    if len(sys.argv) < 2:
+        print("Usage: python youtube_scraper.py channels.txt")
+        sys.exit(1)
+
+    channels = load_channels(sys.argv[1])
+    print(f"Loaded {len(channels)} channels from {sys.argv[1]}\n")
+
     rows = []
-    for i, channel in enumerate(CHANNELS):
-        print(f"Scraping {channel}...")
+    for i, channel in enumerate(channels):
+        print(f"[{i+1}/{len(channels)}] Scraping {channel}...")
         try:
             rows.append(scrape(channel))
         except Exception as e:
             print(f"  Failed: {e}")
-            rows.append({"channel": channel, "error": str(e)})
-        if i < len(CHANNELS) - 1:
+            rows.append({"channel": channel, "url": "", "error": str(e)})
+        if i < len(channels) - 1:
             time.sleep(DELAY)
 
-    fields = ["channel", "url", "emails"] + [k for k in SOCIAL_PATTERNS if k != "emails"]
+    fields = ["channel", "url"] + list(SOCIAL_PATTERNS.keys())
     with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
