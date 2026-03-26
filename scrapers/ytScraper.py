@@ -3,7 +3,7 @@ import csv
 import sys
 import time
 import requests
-from patterns import SOCIAL_PATTERNS
+from formats import SOCIAL_PATTERNS
 
 OUTPUT_FILE = "youtube_contacts.csv"
 DELAY = 1
@@ -29,6 +29,9 @@ def scrape(channel):
 
     row = {"channel": channel, "url": url}
     for key, pattern in SOCIAL_PATTERNS.items():
+        if key == "youtube":
+            row[key] = ""
+            continue
         matches = re.findall(pattern, html, re.I)
         if key == "emails":
             matches = [m for m in matches if not re.search(r"youtube|google", m, re.I)]
