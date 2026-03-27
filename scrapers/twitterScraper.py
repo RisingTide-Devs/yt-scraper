@@ -22,8 +22,8 @@ DELAY = 3000  # ms to wait for JS to render
 
 
 def clean_handle(raw):
-    h = re.sub(r"https?://(?:www\.)?[^/]+/", "", raw)
-    h = re.sub(r"^(?:www\.)?[^/]+/", "", h)
+    h = re.sub(r"https?://", "", raw)          # strip protocol
+    h = re.sub(r"(?:www\.)?(?:twitter|x)\.com/?", "", h, flags=re.I)  # strip domain
     h = h.strip("/").lstrip("@")
     h = re.sub(r"[.\u2026]+$", "", h)
     h = h.rstrip("_-")

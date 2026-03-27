@@ -10,6 +10,7 @@ Adding a new platform:
 """
 
 import csv
+import re
 import sys
 import time
 
@@ -62,7 +63,10 @@ def scrape_channel(channel):
 
         seen_handles = set()
         for handle in handles:
-            if handle in seen_handles:
+            handle = re.sub(r"https?://", "", handle)
+            handle = re.sub(r"(?:www\.)?[^/]+\.com/?", "", handle, flags=re.I)
+            handle = handle.strip("/").lstrip("@").lower()
+            if not handle or handle in seen_handles:
                 continue
             seen_handles.add(handle)
 
