@@ -1,32 +1,26 @@
 """
 scrapers/twitterScraper.py — scrape a Twitter/X profile page using Playwright.
+
 Requires:
     pip install playwright
     playwright install chromium
+
 Usage:
     python scrapers/twitterScraper.py <handle>
 """
+
 import re
 import sys
 import os
 from playwright.sync_api import sync_playwright
 
 sys.path.insert(0, os.path.dirname(__file__))
-from formats import SOCIAL_PATTERNS, PLATFORM_DOMAINS
+from regexHandler import extract, clean_handle
 
 PLATFORM = "twitter_x"
 DELAY = 3000  # ms to wait for JS to render
 
 GITHUB_NOISE = ["mozilla", "tailwindlabs", "mozdevs", "jensimmons"]
-
-
-def clean_handle(raw):
-    h = re.sub(r"https?://", "", raw)
-    h = re.sub(r"(?:www\.)?(?:twitter|x)\.com/?", "", h, flags=re.I)
-    h = h.strip("/").lstrip("@")
-    h = re.sub(r"[.\u2026]+$", "", h)
-    h = h.rstrip("_-")
-    return h.lower()
 
 
 def fetch(handle):
@@ -45,32 +39,15 @@ def fetch(handle):
     return url, html
 
 
-def extract(html):
-    own_domains = PLATFORM_DOMAINS.get(PLATFORM, [])
-    results = {}
-    for key, pattern in SOCIAL_PATTERNS.items():
-        if key == PLATFORM:
-            results[key] = []
-            continue
-        matches = re.findall(pattern, html, re.I)
-        matches = [m for m in matches if not any(d in m.lower() for d in own_domains)]
-        if key == "emails":
-            matches = [m for m in matches if not re.search(r"youtube|google", m, re.I)]
-        elif key == "github":
-            matches = [clean_handle(m) for m in matches]
-            matches = [m for m in matches if m and not any(noise in m.lower() for noise in GITHUB_NOISE)]
-        else:
-            matches = [clean_handle(m) for m in matches]
-            matches = [m for m in matches if m]
-        seen = set()
-        results[key] = [m for m in matches if not (m in seen or seen.add(m))]
-    return results
-
-
 def scrape(handle):
     handle = clean_handle(handle)
     url, html = fetch(handle)
-    contacts = extract(html)
+    contacts = extract(html, exclude_platform=PLATFORM)
+    # Filter GitHub noise specific to X's page
+    contacts["github"] = [
+        m for m in contacts.get("github", [])
+        if not any(noise in m.lower() for noise in GITHUB_NOISE)
+    ]
     return handle, url, contacts
 
 

@@ -4,6 +4,7 @@ import sys
 import time
 import requests
 from formats import SOCIAL_PATTERNS
+from regexHandler import extract
 
 OUTPUT_FILE = "youtube_contacts.csv"
 DELAY = 1
@@ -27,22 +28,18 @@ def scrape(channel):
     resp.raise_for_status()
     html = requests.utils.unquote(resp.text)
 
+    contacts = extract(html, exclude_platform="youtube")
+
     row = {"channel": channel, "url": url}
-    for key, pattern in SOCIAL_PATTERNS.items():
-        if key == "youtube":
-            row[key] = ""
-            continue
-        matches = re.findall(pattern, html, re.I)
-        if key == "emails":
-            matches = [m for m in matches if not re.search(r"youtube|google", m, re.I)]
-        row[key] = ", ".join(sorted(set(matches)))
+    for key, matches in contacts.items():
+        row[key] = ", ".join(matches)
 
     return row
 
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python youtube_scraper.py channels.txt")
+        print("Usage: python ytScraper.py channels.txt")
         sys.exit(1)
 
     channels = load_channels(sys.argv[1])

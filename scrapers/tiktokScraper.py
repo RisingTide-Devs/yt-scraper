@@ -1,12 +1,14 @@
 """
-scrapers/tiktokScraper.py — scrape a tiktok profile page.
+scrapers/tiktokScraper.py — scrape a TikTok profile page.
+
 Usage:
     python scrapers/tiktokScraper.py <handle>
 """
+
 import re
 import sys
 import requests
-from formats import SOCIAL_PATTERNS, PLATFORM_DOMAINS
+from regexHandler import extract, clean_handle
 
 PLATFORM = "tiktok"
 DELAY = 1.5
@@ -22,39 +24,11 @@ def fetch(url):
     return requests.utils.unquote(resp.text)
 
 
-def clean_handle(raw):
-    h = re.sub(r"https?://(?:www\.)?[^/]+/", "", raw)
-    h = re.sub(r"^(?:www\.)?[^/]+/", "", h)
-    h = h.strip("/").lstrip("@")
-    h = re.sub(r"[.\u2026]+$", "", h)
-    h = h.rstrip("_-")
-    return h.lower()
-
-
-def extract(html):
-    own_domains = PLATFORM_DOMAINS.get(PLATFORM, [])
-    results = {}
-    for key, pattern in SOCIAL_PATTERNS.items():
-        if key == PLATFORM:
-            results[key] = []
-            continue
-        matches = re.findall(pattern, html, re.I)
-        matches = [m for m in matches if not any(d in m.lower() for d in own_domains)]
-        if key == "emails":
-            matches = [m for m in matches if not re.search(r"youtube|google|example", m, re.I)]
-        else:
-            matches = [clean_handle(m) for m in matches]
-            matches = [m for m in matches if m]
-        seen = set()
-        results[key] = [m for m in matches if not (m in seen or seen.add(m))]
-    return results
-
-
 def scrape(handle):
     handle = clean_handle(handle)
     url = f"https://www.tiktok.com/@{handle}"
     html = fetch(url)
-    contacts = extract(html)
+    contacts = extract(html, exclude_platform=PLATFORM)
     return handle, url, contacts
 
 
