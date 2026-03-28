@@ -1,14 +1,11 @@
 """
 scrapers/twitterScraper.py — scrape a Twitter/X profile page using Playwright.
-
 Requires:
     pip install playwright
     playwright install chromium
-
 Usage:
     python scrapers/twitterScraper.py <handle>
 """
-
 import re
 import sys
 import os
@@ -20,10 +17,12 @@ from formats import SOCIAL_PATTERNS, PLATFORM_DOMAINS
 PLATFORM = "twitter_x"
 DELAY = 3000  # ms to wait for JS to render
 
+GITHUB_NOISE = ["mozilla", "tailwindlabs", "mozdevs", "jensimmons"]
+
 
 def clean_handle(raw):
-    h = re.sub(r"https?://", "", raw)          # strip protocol
-    h = re.sub(r"(?:www\.)?(?:twitter|x)\.com/?", "", h, flags=re.I)  # strip domain
+    h = re.sub(r"https?://", "", raw)
+    h = re.sub(r"(?:www\.)?(?:twitter|x)\.com/?", "", h, flags=re.I)
     h = h.strip("/").lstrip("@")
     h = re.sub(r"[.\u2026]+$", "", h)
     h = h.rstrip("_-")
@@ -57,6 +56,9 @@ def extract(html):
         matches = [m for m in matches if not any(d in m.lower() for d in own_domains)]
         if key == "emails":
             matches = [m for m in matches if not re.search(r"youtube|google", m, re.I)]
+        elif key == "github":
+            matches = [clean_handle(m) for m in matches]
+            matches = [m for m in matches if m and not any(noise in m.lower() for noise in GITHUB_NOISE)]
         else:
             matches = [clean_handle(m) for m in matches]
             matches = [m for m in matches if m]

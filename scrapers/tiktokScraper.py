@@ -1,10 +1,8 @@
 """
-scrapers/tiktok.py — scrape a tiktok profile page.
-
+scrapers/tiktokScraper.py — scrape a tiktok profile page.
 Usage:
-    python scrapers/tiktok.py <handle>
+    python scrapers/tiktokScraper.py <handle>
 """
-
 import re
 import sys
 import requests
@@ -43,7 +41,7 @@ def extract(html):
         matches = re.findall(pattern, html, re.I)
         matches = [m for m in matches if not any(d in m.lower() for d in own_domains)]
         if key == "emails":
-            matches = [m for m in matches if not re.search(r"youtube|google", m, re.I)]
+            matches = [m for m in matches if not re.search(r"youtube|google|example", m, re.I)]
         else:
             matches = [clean_handle(m) for m in matches]
             matches = [m for m in matches if m]
@@ -54,7 +52,7 @@ def extract(html):
 
 def scrape(handle):
     handle = clean_handle(handle)
-    url = "https://www.tiktok.com/@{handle}".replace("{handle}", handle)
+    url = f"https://www.tiktok.com/@{handle}"
     html = fetch(url)
     contacts = extract(html)
     return handle, url, contacts
@@ -62,7 +60,7 @@ def scrape(handle):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python scrapers/tiktok.py <handle>")
+        print("Usage: python scrapers/tiktokScraper.py <handle>")
         sys.exit(1)
     handle, url, contacts = scrape(sys.argv[1])
     print(f"URL: {url}")
