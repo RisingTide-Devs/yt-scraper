@@ -5,7 +5,7 @@ from formats import SOCIAL_PATTERNS, PLATFORM_DOMAINS
 def clean_handle(raw):
     h = re.sub(r"https?://", "", raw)
     h = re.sub(r"(?:www\.)?[^/]+\.[a-z]+/?", "", h, flags=re.I)
-    h = h.strip("/").lstrip("@").lower()
+    h = h.strip("/").lstrip("@")
     h = re.sub(r"[.\u2026]+$", "", h)
     h = h.rstrip("_-")
     return h

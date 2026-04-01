@@ -1,12 +1,17 @@
 """
-orchestrator.py — scrape a list of YouTube handles, then follow all discovered social links.
+orchestrator.py — scrape a list of social media links, following all discovered links across platforms.
 
 Usage:
     python orchestrator.py channels.txt
 
+channels.txt format — one URL per line, any supported platform:
+    https://www.youtube.com/@MrBeast
+    https://www.twitch.tv/clioaite
+    https://x.com/parrot4chan
+
 Adding a new platform:
     1. Create scrapers/<platform>.py with a scrape(handle) -> (handle, url, contacts) function
-    2. Import it below and add it to the SCRAPERS dict
+    2. Import it below and add an entry to PLATFORM_SCRAPERS
 """
 
 import csv
@@ -14,7 +19,7 @@ import re
 import sys
 import time
 
-from formats import SOCIAL_PATTERNS, ABOUT_URLS
+from formats import SOCIAL_PATTERNS
 import scrapers.ytScraper as youtube
 import scrapers.twitterScraper as twitter_x
 import scrapers.igScraper as instagram
@@ -25,66 +30,114 @@ import scrapers.ttvScraper as twitch
 OUTPUT_FILE = "contacts.csv"
 DELAY = 1.5
 
-# To add a new platform: import its module above and add it here
-SCRAPERS = {
-    "twitter_x": twitter_x,
-    "instagram":  instagram,
-    "tiktok":     tiktok,
-    "facebook":   facebook,
-    "twitch":     twitch,
+# Maps platform key -> (scraper module, domain match strings)
+PLATFORM_SCRAPERS = {
+    "youtube":   (youtube,   ["youtube.com"]),
+    "twitter_x": (twitter_x, ["twitter.com", "x.com"]),
+    "instagram": (instagram, ["instagram.com"]),
+    "tiktok":    (tiktok,    ["tiktok.com"]),
+    "facebook":  (facebook,  ["facebook.com"]),
+    "twitch":    (twitch,    ["twitch.tv"]),
 }
 
 
-def load_channels(filepath):
+def detect_platform(url):
+    url_lower = url.lower()
+    for platform, (scraper, domains) in PLATFORM_SCRAPERS.items():
+        if any(d in url_lower for d in domains):
+            return platform
+    return None
+
+
+def extract_handle(url):
+    """Strip protocol and domain, return the bare handle/path preserving original case."""
+    h = re.sub(r"https?://", "", url)
+    h = re.sub(r"(?:www\.)?[^/]+\.[a-z]+/?", "", h, flags=re.I)
+    h = h.strip("/").lstrip("@")
+    return h
+
+
+def load_urls(filepath):
     with open(filepath, "r", encoding="utf-8") as f:
         return [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
 
-def scrape_channel(channel):
-    rows = []
+def scrape_one(platform, handle):
+    """Scrape a single handle and return (row, contacts dict)."""
+    scraper, _ = PLATFORM_SCRAPERS[platform]
 
-    # --- Step 1: YouTube (returns a flat row dict, as per original ytScraper.py) ---
-    try:
-        yt_row = youtube.scrape(channel)
-    except Exception as e:
-        print(f"  YouTube scrape failed: {e}")
-        return rows
+    if platform == "youtube":
+        row = scraper.scrape(handle)
+        row["source_platform"] = platform
+        contacts = {k: [h.strip() for h in v.split(",") if h.strip()]
+                    for k, v in row.items()
+                    if k in SOCIAL_PATTERNS and v}
+    else:
+        p_handle, p_url, contacts = scraper.scrape(handle)
+        row = {"source_platform": platform, "handle": p_handle, "url": p_url}
+        for key, found in contacts.items():
+            row[key] = ", ".join(found)
 
-    yt_row["source_platform"] = "youtube"
-    rows.append(yt_row)
+    return row, contacts
 
-    # --- Step 2: Follow each discovered platform ---
-    for platform, scraper in SCRAPERS.items():
-        if platform not in ABOUT_URLS:
-            continue
-        handles = [h.strip() for h in yt_row.get(platform, "").split(",") if h.strip()]
-        if not handles:
-            continue
 
-        seen_handles = set()
-        for handle in handles:
-            handle = re.sub(r"https?://", "", handle)
-            handle = re.sub(r"(?:www\.)?[^/]+\.com/?", "", handle, flags=re.I)
-            handle = handle.strip("/").lstrip("@").lower()
-            if not handle or handle in seen_handles:
+def scrape_seed(seed_url, writer):
+    """
+    Fully scrape a seed URL and all links it discovers.
+    Writes rows directly to CSV as they complete.
+    seen and scraped_channel_ids are local to this seed only.
+    """
+    platform = detect_platform(seed_url)
+    if not platform:
+        print(f"  [SKIP] Unrecognised URL: {seed_url}")
+        return
+
+    handle = extract_handle(seed_url)
+    if not handle:
+        return
+
+    seen = {(platform, handle.lower())}
+    scraped_channel_ids = set()
+    stack = [(platform, handle)]
+
+    while stack:
+        current_platform, current_handle = stack.pop(0)
+
+        # Skip channel/UC... if already scraped this seed
+        if current_platform == "youtube" and current_handle.startswith("channel/"):
+            channel_id = current_handle.split("/")[-1].upper()
+            if channel_id in scraped_channel_ids:
+                print(f"  [SKIP] Already scraped YouTube channel: {current_handle}")
                 continue
-            seen_handles.add(handle)
 
-            print(f"  -> Scraping {platform}: {handle}")
-            try:
-                time.sleep(DELAY)
-                p_handle, p_url, p_contacts = scraper.scrape(handle)
-                p_row = {"source_platform": platform, "handle": p_handle, "url": p_url}
-                for key, found in p_contacts.items():
-                    p_row[key] = ", ".join(found)
-                rows.append(p_row)
-            except Exception as e:
-                print(f"     Failed: {e}")
-                rows.append({"source_platform": platform, "handle": handle, "url": "", "error": str(e)})
+        print(f"  [{current_platform}] Scraping: {current_handle}")
 
-        time.sleep(DELAY)
+        try:
+            row, contacts = scrape_one(current_platform, current_handle)
 
-    return rows
+            if current_platform == "youtube" and "channel_id" in row:
+                scraped_channel_ids.add(row["channel_id"].upper())
+
+            writer.writerow(row)
+
+            for discovered_platform, handles in contacts.items():
+                if discovered_platform not in PLATFORM_SCRAPERS:
+                    continue
+                for raw in handles:
+                    h = extract_handle(raw)
+                    if not h:
+                        continue
+                    seen_key = (discovered_platform, h.lower())
+                    if seen_key not in seen:
+                        seen.add(seen_key)
+                        stack.append((discovered_platform, h))
+                        print(f"    -> Queued {discovered_platform}: {h}")
+
+        except Exception as e:
+            print(f"    Failed: {e}")
+
+        if stack:
+            time.sleep(DELAY)
 
 
 def main():
@@ -92,25 +145,23 @@ def main():
         print("Usage: python orchestrator.py channels.txt")
         sys.exit(1)
 
-    channels = load_channels(sys.argv[1])
-    print(f"Loaded {len(channels)} channels from {sys.argv[1]}\n")
+    seed_urls = load_urls(sys.argv[1])
+    print(f"Loaded {len(seed_urls)} URLs from {sys.argv[1]}\n")
 
-    all_rows = []
+    fields = ["source_platform", "handle", "url"] + list(SOCIAL_PATTERNS.keys())
 
-    for i, channel in enumerate(channels):
-        print(f"[{i+1}/{len(channels)}] Scraping YouTube: {channel}")
-        rows = scrape_channel(channel)
-        all_rows.extend(rows)
-        if i < len(channels) - 1:
-            time.sleep(DELAY)
-
-    fields = ["source_platform", "channel", "url"] + list(SOCIAL_PATTERNS.keys())
     with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
-        writer.writerows(all_rows)
 
-    print(f"\nSaved to {OUTPUT_FILE}")
+        for i, seed_url in enumerate(seed_urls):
+            print(f"[{i+1}/{len(seed_urls)}] {seed_url}")
+            scrape_seed(seed_url, writer)
+            f.flush()
+            if i < len(seed_urls) - 1:
+                print()
+
+    print(f"\nDone. Results saved to {OUTPUT_FILE}")
 
 
 if __name__ == "__main__":

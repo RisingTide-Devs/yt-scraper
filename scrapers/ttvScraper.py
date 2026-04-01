@@ -30,7 +30,7 @@ def fetch(handle):
             locale="en-US",
         )
         page = context.new_page()
-        page.goto(url, timeout=30000)
+        page.goto(url, timeout=20000, wait_until="domcontentloaded")
         page.wait_for_timeout(DELAY)
         html = page.content()
         browser.close()
