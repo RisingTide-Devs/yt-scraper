@@ -18,18 +18,14 @@ from googleapiclient.discovery import build
 load_dotenv()
 
 SHEET_ID               = os.getenv("SHEET_ID")
-SHEET_NAME             = os.getenv("SHEET_NAME", "Sheet1")
 SERVICE_ACCOUNT_FILE   = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "credentials.json")
 OUTPUT_FILE            = os.getenv("OUTPUT_FILE", "channels.txt")
 
-# Yellow 3 RGB thresholds (normalized 0-1). Rows matching this color are skipped.
-YELLOW_R = float(os.getenv("YELLOW_R", 1.0))
-YELLOW_G = float(os.getenv("YELLOW_G", 0.839))
-YELLOW_B = float(os.getenv("YELLOW_B", 0.4))
-COLOR_TOLERANCE = 0.05  # Allow slight variation in color values
-
-# URL columns (0-indexed): Tiktok=5, Youtube=6, Twitch=7, Facebook=8, Twitter/X=9, Instagram=10
-URL_COLS = [5, 6, 7, 8, 9, 10]
+# Yellow color as returned by Google Sheets API for highlighted rows
+YELLOW_R = 1.0
+YELLOW_G = 0.9490
+YELLOW_B = 0.8000
+COLOR_TOLERANCE = 0.01
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
@@ -48,33 +44,42 @@ def is_yellow(color):
     )
 
 
-def get_sheet_data(service):
+def get_sheet_data(service, sheet_name):
     """Fetch all cell data including background colors from the sheet."""
-    sheet_range = f"{SHEET_NAME}"
     result = service.spreadsheets().get(
         spreadsheetId=SHEET_ID,
-        ranges=[sheet_range],
+        ranges=[sheet_name],
         includeGridData=True,
-        fields="sheets(data(rowData(values(userEnteredValue,effectiveFormat(backgroundColor)))))"
+        fields="sheets(data(rowData(values(effectiveValue,effectiveFormat(backgroundColor)))))"
     ).execute()
 
     return result["sheets"][0]["data"][0]["rowData"]
 
 
-def extract_urls(row_data):
-    """Extract all URLs from a row's cells."""
-    urls = []
-    for col_idx in URL_COLS:
+# URL column priority order (0-indexed): Youtube=6, Twitch=7, TikTok=5, Facebook=8, Twitter/X=9, Instagram=10
+URL_COLS_PRIORITY = [6, 7, 5, 8, 9, 10]
+
+
+def extract_url(row_data):
+    """Extract the first available URL from a row in priority order."""
+    for col_idx in URL_COLS_PRIORITY:
         if col_idx >= len(row_data):
             continue
         cell = row_data[col_idx]
-        val = cell.get("userEnteredValue", {}).get("stringValue", "")
+        val = cell.get("effectiveValue", {}).get("stringValue", "")
         if val.startswith("http"):
-            urls.append(val.strip())
-    return urls
+            return val.strip()
+    return None
 
 
 def main():
+    if len(sys.argv) < 2:
+        print("Usage: python sheetReader.py <sheet_name>")
+        print("  e.g. python sheetReader.py Sheet1")
+        sys.exit(1)
+
+    sheet_name = sys.argv[1]
+
     if not SHEET_ID:
         print("Error: SHEET_ID not set in .env")
         sys.exit(1)
@@ -89,8 +94,8 @@ def main():
     )
     service = build("sheets", "v4", credentials=creds)
 
-    print(f"Reading sheet: {SHEET_NAME}...")
-    rows = get_sheet_data(service)
+    print(f"Reading sheet: {sheet_name}...")
+    rows = get_sheet_data(service, sheet_name)
 
     all_urls = []
     skipped = 0
@@ -112,8 +117,9 @@ def main():
             skipped += 1
             continue
 
-        urls = extract_urls(row_data)
-        all_urls.extend(urls)
+        url = extract_url(row_data)
+        if url:
+            all_urls.append(url)
 
     # Deduplicate while preserving order
     seen = set()

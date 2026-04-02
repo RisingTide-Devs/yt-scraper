@@ -1,7 +1,8 @@
 *.csv
 *.txt
 !requirements.txt
-__pycache__/
+**/__pycache__/
 *.pyc
 *.env
 !test_channels.txt
+ggCredentials.json
